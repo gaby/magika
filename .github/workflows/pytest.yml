@@ -19,7 +19,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Python ${{ matrix.python-version }}
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '${{ matrix.python-version }}'
@@ -32,16 +32,12 @@ jobs:
       - name: Install the project dependencies
         run: |
           cd python
-          poetry install
+          poetry install --no-interaction --no-root
       - run: |
           cd python
           poetry run magika --version
       - name: Run the automated tests
         working-directory: python
         run: |
-          if [[ ${{ runner.os }} == 'Windows' ]]; then
-            .\.venv\Scripts\Activate.ps1
-          else
-            source .venv/bin/activate
-          fi
+          source $VENV
           poetry run pytest --verbose tests -m "not slow"
