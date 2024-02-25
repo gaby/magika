@@ -41,7 +41,9 @@ def run_magika_python_cli(
     model_dir: Optional[Path] = None,
     extra_cli_options: Optional[List[str]] = None,
 ) -> Tuple[str, str]:
-    cmd = ["python", "-m", "magika"]
+    cmd = [
+        "magika",
+    ]
     cmd.extend(map(str, samples_paths))
     if model_dir is not None:
         cmd.append(str(model_dir))

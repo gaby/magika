@@ -31,4 +31,4 @@ jobs:
       - name: Run the automated tests
         run: |
           cd python
-          poetry run pytest tests -m "not slow"
+          poetry run pytest --verbose tests -m "not slow"
