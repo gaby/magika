@@ -33,12 +33,11 @@ jobs:
         run: |
           cd python
           poetry install
-      - name: Source venv
-        run: source $VENV
       - run: |
           cd python
           poetry run magika --version
       - name: Run the automated tests
         run: |
           cd python
+          source $VENV
           poetry run pytest --verbose tests -m "not slow"
