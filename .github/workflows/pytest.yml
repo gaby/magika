@@ -28,7 +28,9 @@ jobs:
         run: |
           cd python
           poetry install
-      - run: poetry run magika --version
+      - run: |
+          cd python
+          poetry run magika --version
       - name: Run the automated tests
         run: |
           cd python
