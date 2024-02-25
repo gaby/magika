@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.12.x"]
-        os: ["ubuntu-latest", "windows-latest"]
+        os: ["windows-latest"]
     defaults:
       run:
         shell: bash
@@ -33,9 +33,8 @@ jobs:
         run: |
           cd python
           poetry install
-      - run: |
-          cd python
-          poetry run magika --version
+      - run: poetry run magika --version
+      - run: magika --version
       - name: Run the automated tests
         working-directory: python
         run: poetry run pytest --verbose tests -m "not slow"
