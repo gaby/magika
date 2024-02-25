@@ -78,7 +78,7 @@ def run_magika_python_cli(
     if extra_cli_options is not None:
         cmd.extend(extra_cli_options)
 
-    p = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    p = subprocess.run(cmd, capture_output=True, text=True, check=False, shell=True)
 
     if p.returncode == 0:
         return p.stdout, p.stderr
