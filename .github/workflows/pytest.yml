@@ -40,4 +40,4 @@ jobs:
         working-directory: python
         run: |
           source $VENV
-          pytest --version
+          poetry run pytest tests -m "not slow"
