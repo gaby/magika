@@ -27,10 +27,14 @@ jobs:
         uses: snok/install-poetry@v1
         with:
           version: "1.7.1"
+          virtualenvs-create: true
+          virtualenvs-in-project: true
       - name: Install the project dependencies
         run: |
           cd python
           poetry install
+      - name: Source venv
+        run: source $VENV
       - run: |
           cd python
           poetry run magika --version
