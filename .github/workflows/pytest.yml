@@ -27,8 +27,8 @@ jobs:
         uses: snok/install-poetry@v1
         with:
           version: "1.7.1"
-          virtualenvs-create: false
-          virtualenvs-in-project: false
+          virtualenvs-create: true
+          virtualenvs-in-project: true
       - name: Install the project dependencies
         run: |
           cd python
@@ -36,7 +36,8 @@ jobs:
       - run: |
           cd python
           poetry run magika --version
-      - run: magika --version
-      - name: Run the automated tests
+      - name: test
         working-directory: python
-        run: poetry run pytest --verbose tests -m "not slow"
+        run: |
+          source $VENV
+          pytest --version
