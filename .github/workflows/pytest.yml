@@ -37,7 +37,11 @@ jobs:
           cd python
           poetry run magika --version
       - name: Run the automated tests
+        working-directory: python
         run: |
-          cd python
-          source $VENV
+          if [[ ${{ runner.os }} == 'Windows' ]]; then
+            .\.venv\Scripts\Activate.ps1
+          else
+            source .venv/bin/activate
+          fi
           poetry run pytest --verbose tests -m "not slow"
