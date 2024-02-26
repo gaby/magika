@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import platform
 import signal
 import subprocess
 import tempfile
@@ -179,7 +180,11 @@ def test_magika_cli_with_symlinks() -> None:
         assert isinstance(predicted_cts[0][0], Path)
         assert isinstance(predicted_cts[0][1], str)
         assert predicted_cts[0][1].startswith("Symbolic link")
-        assert predicted_cts[0][1].find(str(test_path)) >= 0
+
+        # Extract the actual path from the output
+        actual_path_str = predicted_cts[0][1].split('Symbolic link to ')[1].split(' ')[0]
+        actual_path = Path(actual_path_str)
+        assert actual_path.resolve() == test_path.resolve(), "Actual path does not match expected path"
 
 
 def test_magika_cli_with_files_with_permission_errors() -> None:
@@ -188,7 +193,12 @@ def test_magika_cli_with_files_with_permission_errors() -> None:
         unreadable_test_path.write_text("test")
 
         # make it unreadable
-        unreadable_test_path.chmod(0o000)
+        if platform.system() == "Windows":
+            # On Windows, set the file to be read-only to simulate a "permission error"
+            unreadable_test_path.chmod(0o444)
+        else:
+            # On Unix-like systems, make the file unreadable
+            unreadable_test_path.chmod(0o000)
 
         stdout, stderr = run_magika_python_cli(
             [unreadable_test_path], label_output=True
