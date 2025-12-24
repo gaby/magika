@@ -545,18 +545,22 @@ class Magika:
     @staticmethod
     def _has_read_permission(path: Path) -> bool:
         """Return True if the current user should be able to read the file."""
-        try:
-            st = path.stat()
-        except OSError:
-            return False
+        if hasattr(os, "geteuid"):
+            try:
+                st = path.stat()
+            except OSError:
+                return False
 
-        mode = st.st_mode
-        if st.st_uid == os.geteuid():
-            return bool(mode & stat.S_IRUSR)
-        user_groups = os.getgroups()
-        if st.st_gid == os.getegid() or st.st_gid in user_groups:
-            return bool(mode & stat.S_IRGRP)
-        return bool(mode & stat.S_IROTH)
+            mode = st.st_mode
+            if st.st_uid == os.geteuid():
+                return bool(mode & stat.S_IRUSR)
+            user_groups = os.getgroups()
+            if st.st_gid == os.getegid() or st.st_gid in user_groups:
+                return bool(mode & stat.S_IRGRP)
+            return bool(mode & stat.S_IROTH)
+
+        # Fallback for platforms without POSIX ids (e.g., Windows).
+        return os.access(path, os.R_OK)
 
     def _get_model_outputs_from_features(
         self, all_features: List[Tuple[Path, ModelFeatures]]
