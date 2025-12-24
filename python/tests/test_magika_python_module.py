@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import io
+import os
 import signal
 import tempfile
 from pathlib import Path
@@ -569,6 +570,11 @@ def test_magika_module_with_permission_error() -> None:
 
         unreadable_test_path.chmod(0o000)
 
+        # On environments running with elevated privileges (e.g., root),
+        # permission bits may be ignored and the file will remain readable.
+        if os.access(unreadable_test_path, os.R_OK):
+            pytest.skip("Environment can read files with mode 000; skipping.")
+
         res = m.identify_path(unreadable_test_path)
         assert res.path == unreadable_test_path
         assert not res.ok
@@ -585,6 +591,9 @@ def test_magika_module_with_permission_error() -> None:
         unreadable_test_path.write_text("")
 
         unreadable_test_path.chmod(0o000)
+
+        if os.access(unreadable_test_path, os.R_OK):
+            pytest.skip("Environment can read files with mode 000; skipping.")
 
         res = m.identify_path(unreadable_test_path)
         assert res.path == unreadable_test_path
