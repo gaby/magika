@@ -838,8 +838,8 @@ class Magika:
     ) -> List[List[float]]:
         """Get raw predictions from features.
 
-        Given a list of (path, features), return a (files_num, features_size)
-        matrix encoding the predictions.
+        Given a list of (path, features), return a list of lists of floats
+        of shape (files_num, features_size), encoding the predictions.
         """
         start_time = time.time()
         samples_bytes: List[List[int]] = []
