@@ -901,9 +901,13 @@ class Magika:
                 buffer_ptr=batch_ptr,
             )
 
+            if self._output_tensor_type is None:
+                raise MagikaError(
+                    "Output tensor type is not set; cannot create output OrtValue."
+                )
             output_ortvalue = rt.OrtValue.ortvalue_from_shape_and_type(
                 [batch_size, classes_num],
-                self._output_tensor_type or "float",
+                self._output_tensor_type,
             )
             binding.bind_ortvalue_output("target_label", output_ortvalue)
 
@@ -928,7 +932,7 @@ class Magika:
             for sample_idx in range(batch_size):
                 start = sample_idx * classes_num
                 end = start + classes_num
-                sample_scores = [float(score) for score in flat_scores[start:end]]
+                sample_scores = flat_scores[start:end]
                 raw_predictions_list.append(sample_scores)
 
         return raw_predictions_list
