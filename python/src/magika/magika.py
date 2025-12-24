@@ -18,16 +18,17 @@ This module provides the `Magika` class, the main entry point for using Magika
 to identify file content types.
 """
 
+import ctypes
+import array
 import io
 import json
 import logging
 import os
+import stat
 import time
 from pathlib import Path
-from typing import BinaryIO, Dict, List, Optional, Sequence, Set, Tuple, Union
+from typing import BinaryIO, Dict, List, Optional, Sequence, Set, Tuple, Type, Union
 
-import numpy as np
-import numpy.typing as npt
 import onnxruntime as rt
 
 from magika.logger import get_logger
@@ -109,8 +110,8 @@ class Magika:
             self._model_config_path
         )
 
-        self._target_labels_space_np = np.array(
-            list(map(str, self._model_config.target_labels_space))
+        self._target_labels_space: List[ContentTypeLabel] = list(
+            self._model_config.target_labels_space
         )
 
         self._prediction_mode = prediction_mode
@@ -528,20 +529,54 @@ class Magika:
 
         return end_ints
 
+    @staticmethod
+    def _get_ctypes_type_for_element(
+        element_type: int,
+    ) -> Optional[Type[ctypes._SimpleCData]]:
+        """Return the ctypes type corresponding to an ONNX element type."""
+        element_type_map: Dict[int, Type[ctypes._SimpleCData]] = {
+            1: ctypes.c_float,
+            6: ctypes.c_int32,
+            7: ctypes.c_int64,
+            11: ctypes.c_double,
+        }
+        return element_type_map.get(element_type)
+
+    @staticmethod
+    def _has_read_permission(path: Path) -> bool:
+        """Return True if the current user should be able to read the file."""
+        try:
+            st = path.stat()
+        except OSError:
+            return False
+
+        mode = st.st_mode
+        if st.st_uid == os.geteuid():
+            return bool(mode & stat.S_IRUSR)
+        user_groups = os.getgroups()
+        if st.st_gid == os.getegid() or st.st_gid in user_groups:
+            return bool(mode & stat.S_IRGRP)
+        return bool(mode & stat.S_IROTH)
+
     def _get_model_outputs_from_features(
         self, all_features: List[Tuple[Path, ModelFeatures]]
     ) -> List[Tuple[Path, ModelOutput]]:
         raw_preds = self._get_raw_predictions(all_features)
-        top_preds_idxs = np.argmax(raw_preds, axis=1)
-        preds_content_types_labels = self._target_labels_space_np[top_preds_idxs]
-        scores = np.max(raw_preds, axis=1)
-
-        return [
-            (path, ModelOutput(label=ContentTypeLabel(label), score=float(score)))
-            for (path, _), label, score in zip(
-                all_features, preds_content_types_labels, scores
+        model_outputs: List[Tuple[Path, ModelOutput]] = []
+        for (path, _), preds in zip(all_features, raw_preds):
+            if len(preds) == 0:
+                raise MagikaError("Model returned an empty predictions vector.")
+            top_idx = 0
+            top_score = preds[0]
+            for idx, score in enumerate(preds[1:], start=1):
+                if score > top_score:
+                    top_score = score
+                    top_idx = idx
+            label = self._target_labels_space[top_idx]
+            model_outputs.append(
+                (path, ModelOutput(label=label, score=float(top_score)))
             )
-        ]
+        return model_outputs
 
     def _get_results_from_features(
         self, all_features: List[Tuple[Path, ModelFeatures]]
@@ -680,16 +715,19 @@ class Magika:
             return MagikaResult(path=path, status=Status.FILE_NOT_FOUND_ERROR), None
 
         if path.is_file():
-            if not os.access(path, os.R_OK):
+            if not self._has_read_permission(path):
                 return MagikaResult(path=path, status=Status.PERMISSION_ERROR), None
 
             else:
                 # There are no additional path-specific corner cases, we can
                 # treat the input path as a stream.
-                with open(path, "rb") as stream:
-                    return self._get_result_or_features_from_seekable(
-                        Seekable(stream), path
-                    )
+                try:
+                    with open(path, "rb") as stream:
+                        return self._get_result_or_features_from_seekable(
+                            Seekable(stream), path
+                        )
+                except PermissionError:
+                    return MagikaResult(path=path, status=Status.PERMISSION_ERROR), None
 
         elif path.is_dir():
             result = self._get_result_from_labels_and_score(
@@ -795,14 +833,15 @@ class Magika:
 
     def _get_raw_predictions(
         self, features: List[Tuple[Path, ModelFeatures]]
-    ) -> npt.NDArray:
+    ) -> List[List[float]]:
         """Get raw predictions from features.
 
         Given a list of (path, features), return a (files_num, features_size)
         matrix encoding the predictions.
         """
         start_time = time.time()
-        X_bytes = []
+        samples_bytes: List[List[int]] = []
+        features_size: Optional[int] = None
         for _, fs in features:
             sample_bytes = []
             if self._model_config.beg_size > 0:
@@ -811,13 +850,23 @@ class Magika:
                 sample_bytes.extend(fs.mid[: self._model_config.mid_size])
             if self._model_config.end_size > 0:
                 sample_bytes.extend(fs.end[-self._model_config.end_size :])
-            X_bytes.append(sample_bytes)
-        X = np.array(X_bytes, dtype=np.int32)
+            if features_size is None:
+                features_size = len(sample_bytes)
+            elif features_size != len(sample_bytes):
+                raise MagikaError("Inconsistent feature vector size.")
+            samples_bytes.append(sample_bytes)
+
+        if features_size is None:
+            return []
+
         elapsed_time = 1000 * (time.time() - start_time)
         self._log.debug(f"DL input prepared in {elapsed_time:.03f} ms")
 
-        raw_predictions_list = []
-        samples_num = X.shape[0]
+        input_element_type = rt.OrtValue.ortvalue_from_shape_and_type(
+            [1], "int32"
+        ).element_type()
+        raw_predictions_list: List[List[float]] = []
+        samples_num = len(samples_bytes)
 
         max_internal_batch_size = 1000
         batches_num = samples_num // max_internal_batch_size
@@ -832,11 +881,52 @@ class Magika:
             end_idx = min((batch_idx + 1) * max_internal_batch_size, samples_num)
 
             start_time = time.time()
-            batch_raw_predictions = self._onnx_session.run(
-                ["target_label"], {"bytes": X[start_idx:end_idx, :]}
-            )[0]
+            batch_samples = samples_bytes[start_idx:end_idx]
+            batch_data = array.array("i")
+            for sample_bytes in batch_samples:
+                batch_data.extend(sample_bytes)
+            batch_ptr, _ = batch_data.buffer_info()
+
+            binding = self._onnx_session.io_binding()
+            binding.bind_input(
+                "bytes",
+                device_type="cpu",
+                device_id=0,
+                element_type=input_element_type,
+                shape=[len(batch_samples), features_size],
+                buffer_ptr=batch_ptr,
+            )
+            binding.bind_output("target_label")
+
+            self._onnx_session.run_with_iobinding(binding)
             elapsed_time = 1000 * (time.time() - start_time)
             self._log.debug(f"DL raw prediction in {elapsed_time:.03f} ms")
 
-            raw_predictions_list.append(batch_raw_predictions)
-        return np.concatenate(raw_predictions_list)
+            outputs = binding.get_outputs()
+            if len(outputs) != 1:
+                raise MagikaError("Unexpected number of outputs from ONNX session.")
+
+            output_value = outputs[0]
+            output_shape = output_value.shape()
+            output_element_type = output_value.element_type()
+
+            if output_shape is None or len(output_shape) != 2:
+                raise MagikaError("Unexpected output tensor shape.")
+            output_ctype = Magika._get_ctypes_type_for_element(output_element_type)
+            if output_ctype is None:
+                raise MagikaError(
+                    f"Unsupported output element type: {output_element_type}"
+                )
+            total_values = int(output_shape[0]) * int(output_shape[1])
+            data_ptr = output_value.data_ptr()
+            tensor_ptr = ctypes.cast(data_ptr, ctypes.POINTER(output_ctype))
+            flat_scores = [float(tensor_ptr[idx]) for idx in range(total_values)]
+            classes_num = int(output_shape[1])
+
+            for sample_idx in range(len(batch_samples)):
+                start = sample_idx * classes_num
+                end = start + classes_num
+                sample_scores = [float(score) for score in flat_scores[start:end]]
+                raw_predictions_list.append(sample_scores)
+
+        return raw_predictions_list

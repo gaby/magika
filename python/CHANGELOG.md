@@ -16,6 +16,7 @@ semver guidelines for more details about this.
 - Pin onnxruntime on Windows ([#1099](https://github.com/google/magika/pull/1099)).
 - Add docstrings for all relevant modules, classes, and methods.
 - Improved READMEs and overall [documentation](https://securityresearch.google/magika/cli-and-bindings/python/).
+- Remove NumPy dependency by running ONNX inference with pure-Python buffers.
 
 ## [0.6.2] - 2025-05-02
 

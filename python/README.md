@@ -33,6 +33,8 @@ If you intend to use Magika only as a command line, you may want to use `pipx in
 
 If you want to test out the latest release candidate, you can install it with `pip install --pre magika`.
 
+Magika no longer depends on NumPy; inference is driven through pure-Python buffers, keeping installs lightweight and avoiding platform-specific wheels.
+
 ## Using Magika as a command-line tool
 
 > Beginning with version `0.6.0`, the magika Python package includes a pre-compiled Rust-based command-line tool, replacing the previous Python version. This binary is distributed as platform-specific wheels for most common architectures. For unsupported platforms, a pure-Python wheel is also available, providing the legacy Python client as a fallback.

@@ -25,6 +25,7 @@ from magika.types import (
     ContentTypeInfo,
     ContentTypeLabel,
     MagikaPrediction,
+    ModelFeatures,
     MagikaResult,
     Status,
 )
@@ -115,6 +116,28 @@ def test_magika_module_with_basic_tests_by_stream() -> None:
         check_result_vs_expected_result(
             test_path, result, expected_result_path=Path("-")
         )
+
+
+def test_raw_predictions_use_python_lists() -> None:
+    m = Magika()
+    sample_features: Optional[ModelFeatures] = None
+    sample_path: Optional[Path] = None
+
+    for test_path in utils.get_basic_test_files_paths():
+        _, features = m._get_result_or_features_from_path(test_path)
+        if features is not None:
+            sample_features = features
+            sample_path = test_path
+            break
+
+    assert sample_features is not None
+    assert sample_path is not None
+
+    raw_predictions = m._get_raw_predictions([(sample_path, sample_features)])
+    assert isinstance(raw_predictions, list)
+    assert raw_predictions
+    assert isinstance(raw_predictions[0], list)
+    assert all(isinstance(score, float) for score in raw_predictions[0])
 
 
 def test_magika_module_with_all_models() -> None:
