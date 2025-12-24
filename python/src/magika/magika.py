@@ -848,9 +848,6 @@ class Magika:
         input_element_type = rt.OrtValue.ortvalue_from_shape_and_type(
             [1], "int32"
         ).element_type()
-        output_element_type = rt.OrtValue.ortvalue_from_shape_and_type(
-            [1], "float32"
-        ).element_type()
         raw_predictions_list: List[List[float]] = []
         samples_num = len(samples_bytes)
 
@@ -874,8 +871,6 @@ class Magika:
             batch_ptr, _ = batch_data.buffer_info()
             batch_size = len(batch_samples)
             classes_num = len(self._target_labels_space)
-            output_buffer = array.array("f", [0.0] * (batch_size * classes_num))
-            output_ptr, _ = output_buffer.buffer_info()
 
             binding = self._onnx_session.io_binding()
             binding.bind_input(
@@ -886,20 +881,30 @@ class Magika:
                 shape=[batch_size, features_size],
                 buffer_ptr=batch_ptr,
             )
-            binding.bind_output(
-                "target_label",
-                device_type="cpu",
-                device_id=0,
-                element_type=output_element_type,
-                shape=[batch_size, classes_num],
-                buffer_ptr=output_ptr,
-            )
+            binding.bind_output("target_label")
 
             self._onnx_session.run_with_iobinding(binding)
             elapsed_time = 1000 * (time.time() - start_time)
             self._log.debug(f"DL raw prediction in {elapsed_time:.03f} ms")
 
-            flat_scores = list(output_buffer)
+            outputs = binding.get_outputs()
+            if len(outputs) != 1:
+                raise MagikaError("Unexpected number of outputs from ONNX session.")
+            output_value = outputs[0]
+            output_shape = output_value.shape()
+            if output_shape is None or len(output_shape) != 2:
+                raise MagikaError("Unexpected output tensor shape.")
+            output_element_type = output_value.element_type()
+            output_ctype = Magika._get_ctypes_type_for_element(output_element_type)
+            if output_ctype is None:
+                raise MagikaError(
+                    f"Unsupported output element type: {output_element_type}"
+                )
+            total_values = int(output_shape[0]) * int(output_shape[1])
+            data_ptr = output_value.data_ptr()
+            tensor_ptr = ctypes.cast(data_ptr, ctypes.POINTER(output_ctype))
+            flat_scores = [float(tensor_ptr[idx]) for idx in range(total_values)]
+            classes_num = int(output_shape[1])
             for sample_idx in range(batch_size):
                 start = sample_idx * classes_num
                 end = start + classes_num
