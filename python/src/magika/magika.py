@@ -123,6 +123,10 @@ class Magika:
         self._cts_infos = Magika._load_content_types_kb(content_types_kb_path)
 
         self._onnx_session = self._init_onnx_session()
+        model_outputs = self._onnx_session.get_outputs()
+        self._output_tensor_type: Optional[str] = None
+        if model_outputs:
+            self._output_tensor_type = Magika._parse_tensor_type(model_outputs[0].type)
 
     def __repr__(self) -> str:
         return str(self)
@@ -541,6 +545,21 @@ class Magika:
         }
         return element_type_map.get(element_type)
 
+    @staticmethod
+    def _parse_tensor_type(type_str: Optional[str]) -> Optional[str]:
+        """Extract the element type from an ONNX tensor type string."""
+        if type_str is None:
+            return None
+        if type_str.startswith("tensor(") and type_str.endswith(")"):
+            elem = type_str[len("tensor(") : -1]
+            # onnxruntime expects explicit width for floats
+            if elem == "float":
+                return "float32"
+            if elem == "double":
+                return "float64"
+            return elem
+        return None
+
     def _get_model_outputs_from_features(
         self, all_features: List[Tuple[Path, ModelFeatures]]
     ) -> List[Tuple[Path, ModelOutput]]:
@@ -881,27 +900,28 @@ class Magika:
                 shape=[batch_size, features_size],
                 buffer_ptr=batch_ptr,
             )
-            binding.bind_output("target_label")
+
+            output_ortvalue = rt.OrtValue.ortvalue_from_shape_and_type(
+                [batch_size, classes_num],
+                self._output_tensor_type or "float",
+            )
+            binding.bind_ortvalue_output("target_label", output_ortvalue)
 
             self._onnx_session.run_with_iobinding(binding)
             elapsed_time = 1000 * (time.time() - start_time)
             self._log.debug(f"DL raw prediction in {elapsed_time:.03f} ms")
 
-            outputs = binding.get_outputs()
-            if len(outputs) != 1:
-                raise MagikaError("Unexpected number of outputs from ONNX session.")
-            output_value = outputs[0]
-            output_shape = output_value.shape()
+            output_shape = output_ortvalue.shape()
             if output_shape is None or len(output_shape) != 2:
                 raise MagikaError("Unexpected output tensor shape.")
-            output_element_type = output_value.element_type()
+            output_element_type = output_ortvalue.element_type()
             output_ctype = Magika._get_ctypes_type_for_element(output_element_type)
             if output_ctype is None:
                 raise MagikaError(
                     f"Unsupported output element type: {output_element_type}"
                 )
             total_values = int(output_shape[0]) * int(output_shape[1])
-            data_ptr = output_value.data_ptr()
+            data_ptr = output_ortvalue.data_ptr()
             tensor_ptr = ctypes.cast(data_ptr, ctypes.POINTER(output_ctype))
             flat_scores = [float(tensor_ptr[idx]) for idx in range(total_values)]
             classes_num = int(output_shape[1])
