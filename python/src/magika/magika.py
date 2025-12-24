@@ -18,8 +18,8 @@ This module provides the `Magika` class, the main entry point for using Magika
 to identify file content types.
 """
 
-import ctypes
 import array
+import ctypes
 import io
 import json
 import logging

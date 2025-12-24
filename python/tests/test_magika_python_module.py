@@ -25,8 +25,8 @@ from magika.types import (
     ContentTypeInfo,
     ContentTypeLabel,
     MagikaPrediction,
-    ModelFeatures,
     MagikaResult,
+    ModelFeatures,
     Status,
 )
 from magika.types.overwrite_reason import OverwriteReason
